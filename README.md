@@ -1,0 +1,2 @@
+# TradingBot
+kucoin trading bot
