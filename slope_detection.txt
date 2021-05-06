@@ -1,0 +1,17 @@
+#https://www.journaldev.com/45109/normalize-data-in-python
+Use to create weighted multipliers for the amount of asset we want to purchase or sell.
+Will be triggered after the short term EMA has crossed the longer SMA
+Checks the change in price over time (slope of EMA vs SMA)
+If slope grows rapidly then increase the amount we want to sell
+If slope decreases rapidly then increase the amount we want to sell# (1)
+
+slope0 = (x[n] - x[n-1])/(y[n] - y[n-1])
+slope1 = (x[n-1] - x[n-2])/(y[n-1] - y[n-2])
+
+    if slope0 - slope1 ~= 0, then there is either a sharp correction or the ema is flat (uncertain or low volatility, hold)
+
+slope3 = (x[n-2] - x[n-3])/(y[n-2] - y[n-3])
+if abs(slope2 - slope3) < small amount
+
+(1) Check other parameters like stop losses or larger trend SMA before immediately dumping
+    Maybe make the weight for sell orders 75% of that for buy orders

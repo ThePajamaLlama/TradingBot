@@ -58,7 +58,10 @@ class Trader:
         self.update_indicators()
         self.user_accounts = self.client.get_accounts()
         print(self.user_accounts)
-        self.init_wallets()
+        self.coin1_balance = []
+        self.coin1_id = ''
+        self.coin2_balance = []
+        self.coin2_id = ''
 
 
     def update_indicators(self): #Call this to update the CP, SMA, and EMA arrays
@@ -67,21 +70,24 @@ class Trader:
         self.get_ema()
         return self.cp, self.sma, self.ema
 
-    def init_wallets(self):
+    def init_wallets(self, coin1=coin1, coin2=coin2):
         try:
             for account in self.user_accounts:
-                if account['type'] == 'trade':
-                    if account['currency'] == coin1:
+                if account['currency'] == coin1:
+                    if account['type'] == 'trade':
                         self.coin1_id = account['id']
-                        self.coin1_balance = int(account['balance'])
-                    elif account['currency'] == coin2:
-                        self.coin2_balance = int(account['balance'])
+                        self.coin1_balance = float(account['balance'])
+                elif account['currency'] == coin2:
+                    if account['type'] == 'trade':
+                        self.coin2_balance = float(account['balance'])
                         self.coin2_id = account['id']
-                    else:
-                        pass
-        except:
-            print('Could no retrieve desired account balances')
-        return self.coin1_balance, self.coin1_id, self.coin2_balance, self.coin2_id
+                else:
+                    pass
+            print('{0} Wallet Balance: {1}, Acc ID: {2}'.format(self.coin1, self.coin1_balance, self.coin1_id))
+            print('{0} Wallet Balance: {1}, Acc ID: {2}'.format(self.coin2, self.coin2_balance, self.coin2_id))
+        except Exception as e:
+            print('ERROR:', e)
+        #return self.coin1_balance, self.coin1_id, self.coin2_balance, self.coin2_id
 
 
     def get_ema(self, period=EMA_PERIOD):
@@ -150,13 +156,11 @@ async def main():
     bot = Trader(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase)
     print("Last Time Stamp: ", bot.historical_data.loc[0, 'TimeStamp'])
     print("Current unixtimestamp: ", time.time())
-
     sock_manager = await KucoinSocketManager.create(loop, bot.client, on_msg)
     await sock_manager.subscribe(bot.subscription_url)
     print('Connection Secured at: ', time.time())
     print(bot.historical_data)
-    print('{0} Wallet Balance: {1}, Acc ID: {2}'.format(bot.coin1, bot.coin1_balance, bot.coin1_id))
-    print('{0} Wallet Balance: {1}, Acc ID: {2}'.format(bot.coin2, bot.coin1_balance, bot.coin1_id))
+    bot.init_wallets()
 
     while True:
         if bot.new_table:
