@@ -4,6 +4,8 @@
 #https://docs.kucoin.cc/#apply-connect-token
 #https://stackoverflow.com/questions/64757209/how-to-stop-asyncio-loop-with-multiple-tasks
 #cd C:\Users\Luis\Documents\Python Projects\SelfProjects\TradingBot
+#https://towardsdatascience.com/making-a-trade-call-using-simple-moving-average-sma-crossover-strategy-python-implementation-29963326da7a
+
 
 """
 New variation will accumilate all datapoints as they pass rather than limit it to 100.
@@ -125,17 +127,22 @@ class Trader:
         ema = self.ema
         #implement stop_loss variable that is adjusted as price rises and falls
         #look into Part Time Larry Supertrend indicator
-        #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)
-        if abs((ema[0]-sma[0])/sma[0]) > 0.05*sma[0]:
+
+        #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)'
+        #use numpy where: https://www.quantstart.com/articles/Backtesting-a-Moving-Average-Crossover-in-Python-with-pandas/
+        if a(ema[0]-sma[0])/sma[0] > 0.03*sma[0]:
             #uptrend -> set decision['Buy'] to True:
+            if ema
+                decision['Buy'] = True
                 #amount = self.coin1_balance[0]*(0.25)*(1+up_multiplier)
                 ###################################################################################################3
         #We haven't made a trade yet, wait for an EMA and SMA crossing before taking action
         if len(self.list_of_trades) == 0:
             return decision  #Return unmodified decision dict, so execute_trade(decision) takes no action
-
-
         return decision
+
+    def execute_trade(self, decision):
+        print(decision)
 
 def update_plot(fig, time, cp, sma, ema):
     fig.clf()
@@ -155,6 +162,8 @@ async def main():
 
     async def update_stats(data):
         bot.kline_data = np.insert(bot.kline_data, 0, data, axis=0)
+        #Comment out line below if we want to keep all of our candle stick data rather than using sliding averages
+        bot.kline_data = np.delete(bot.kline_data, -1, 0)
         bot.historical_data = pd.DataFrame(bot.kline_data, columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         bot.update_indicators()
         bot.new_table = True
