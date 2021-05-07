@@ -62,6 +62,7 @@ class Trader:
         self.coin1_id = ''
         self.coin2_balance = []
         self.coin2_id = ''
+        self.list_of_trades = []
 
 
     def update_indicators(self): #Call this to update the CP, SMA, and EMA arrays
@@ -110,8 +111,31 @@ class Trader:
             closing_price.append(float(items))#Gives a list
         self.cp = np.flip(closing_price).tolist()
 
-    def get_coin_balance(self, coin):
-        pass
+    def trade_logic(self): #takes kline_df (pd.DataFrame) and indicators (dictionary of indicators) (list of ints)
+        #trade logic should maximize coin1 amount.
+        decision = {
+            'Buy' : False,
+            'Sell' : False,
+            'Amount' : 0
+        }
+        up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
+        down_multiplier = 0.0
+        cp = self.cp
+        sma = self.sma
+        ema = self.ema
+        #implement stop_loss variable that is adjusted as price rises and falls
+        #look into Part Time Larry Supertrend indicator
+        #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)
+        if abs((ema[0]-sma[0])/sma[0]) > 0.05*sma[0]:
+            #uptrend -> set decision['Buy'] to True:
+                #amount = self.coin1_balance[0]*(0.25)*(1+up_multiplier)
+                ###################################################################################################3
+        #We haven't made a trade yet, wait for an EMA and SMA crossing before taking action
+        if len(self.list_of_trades) == 0:
+            return decision  #Return unmodified decision dict, so execute_trade(decision) takes no action
+
+
+        return decision
 
 def update_plot(fig, time, cp, sma, ema):
     fig.clf()
@@ -125,23 +149,15 @@ def update_plot(fig, time, cp, sma, ema):
     plt.pause(10)
     #plt.show()
 
-def trade_logic(hist_data, indicators): #takes historical_data (pd.DataFrame) and indicators (dictionary of indicators) (list of ints)
-    decision = {
-        'Buy' : False,
-        'Sell' : False,
-        'Amount' : 0
-    }
-
-    return decision
-
 
 async def main():
     global loop
 
     async def update_stats(data):
         bot.kline_data = np.insert(bot.kline_data, 0, data, axis=0)
-        bot.new_table = True
         bot.historical_data = pd.DataFrame(bot.kline_data, columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
+        bot.update_indicators()
+        bot.new_table = True
 
     async def on_msg(msg):
         if msg['data']['symbol'] == bot.ticker:
@@ -171,13 +187,12 @@ async def main():
             indicators = {'TimeStamp':time_data, 'Closing':cp, 'SMA': sma, 'EMA': ema}
             indicator_df = pd.DataFrame(indicators)
             print(indicator_df)
-            #decision = trade_logic(bot.historical_data, indicators) #returns dictionary with 'Buy', 'Sell', 'Amount' that gets passed into a function which executes trade
-            #execute_trade(decision)
+            decision = bot.trade_logic() #returns dictionary with 'Buy', 'Sell', 'Amount' that gets passed into a function which executes trade
+            bot.execute_trade(decision)
             #export_file_path = "C:\\Users\\zinex\\Documents\\Python\\hist_data\\hist_data.cvs"
             #bot.historical_data.to_csv(export_file_path, header=True, index=False)
             bot.new_table = False
         await asyncio.sleep(1)
-
 
 api_key = keys['apiKey']
 api_secret = keys['apiSecret']
