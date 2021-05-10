@@ -19,7 +19,6 @@ send sandbox keys for phonenumber account to work, we should only be using one p
 
 import sys
 import time
-import datetime as dt
 import asyncio
 import nest_asyncio
 nest_asyncio.apply()
@@ -35,36 +34,50 @@ from kucoin.asyncio import KucoinSocketManager
 from kucoinKeys import sandbox_keys as keys
 
 class Trader:
-    coin1 = 'BTC'
-    coin2 = 'USDT'
-    ticker = coin1 + '-' + coin2
+    symbol1 = 'BTC'
+    symbol2 = 'USDT'
+    ticker = symbol1 + '-' + symbol2
     cs_length = '1min'
     subscription_url = '/market/candles:{0}_{1}'.format(ticker, cs_length)
     new_table = False
     SMA_PERIOD = 20
     EMA_PERIOD = 10
 
-    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, ticker_span=100):
+    #Lets make some variables if we want to change the length of a candle
+    minute = 60
+    hour = 60 * minute
+    day = hour * 24
+
+    #candle_points
+    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, candle_points=100, ticker_len = minute, backtest=True):
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_passphrase = api_passphrase
         self.client = Client(api_key, api_secret, api_passphrase, sandbox=True)
-        self.ticker_span = ticker_span #Number of candlestick data points to acquire
-        self.kline_data = []
-        self.historical_data = []
+        self.backtest = backtest
+        #self.kline_data = []
+        #self.historical_data = []
+        self.candle_points = candle_points #Number of candlestick data points to acquire
         now = int(time.time())
-        self.kline_data = np.array(self.client.get_kline_data(self.ticker, self.cs_length, (now - self.ticker_span*60), now))
+        #Kline data is a list of candle stick info. Each element contains timestamp, open, close, high, low, tx amount and tx volume
+        self.kline_data = np.array(self.client.get_kline_data(self.ticker, self.cs_length, (now - self.candle_points*ticker_len), now))
+        #historical data is the pandas datafram version of klin_data. Use to access column sof values like just time, or open price
         self.historical_data = pd.DataFrame(self.kline_data,
                             columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
-        self.candle_stick = self.kline_data[0] #Most recenr candle stick info
         self.update_indicators()
         self.user_accounts = self.client.get_accounts()
-        print(self.user_accounts)
-        self.coin1_balance = []
-        self.coin1_id = ''
-        self.coin2_balance = []
-        self.coin2_id = ''
+        #print(self.user_accounts)
         self.list_of_trades = []
+
+        class Coin:
+            def __init__(self, symbol):
+                self.symbol = symbol
+                self.balance = None
+                self.available = None
+                self.id = ''
+
+        self.coin1 = Coin(symbol=self.symbol1)
+        self.coin2 = Coin(symbol=self.symbol2)
 
 
     def update_indicators(self): #Call this to update the CP, SMA, and EMA arrays
@@ -73,21 +86,43 @@ class Trader:
         self.get_ema()
         return self.cp, self.sma, self.ema
 
-    def init_wallets(self, coin1=coin1, coin2=coin2):
+    def update_wallet(self, coin, amount=0):
+        if self.backtest:
+            if abs(amount) > 0:
+                #Amount should be positive for buys, negative for sells
+                if amount > 0:
+                    print('Adding {0} to {1} wallet...'.format(amount, coin.symbol))
+                else:
+                    print('Deducting {0} from {1} wallet...'.format(amount, coin.symbol))
+                coin.available = coin.available + amount
+                coin.balance = coin.available
+            else:
+                return coin.available
+        else:
+            acc = coin.id
+            account = self.client.get_account(acc)
+            coin.available = float(account['available'])
+        print('{0} Wallet Balance: {1}'.format(coin.symbol, coin.balance))
+        return coin.available
+
+
+    def init_wallets(self, coin1=symbol1, coin2=symbol2):
         try:
             for account in self.user_accounts:
                 if account['currency'] == coin1:
                     if account['type'] == 'trade':
-                        self.coin1_id = account['id']
-                        self.coin1_balance = float(account['balance'])
+                        self.coin1.id = account['id']
+                        self.coin1.available = float(account['available'])
+                        self.coin1.balance = float(account['balance'])
                 elif account['currency'] == coin2:
                     if account['type'] == 'trade':
-                        self.coin2_balance = float(account['balance'])
-                        self.coin2_id = account['id']
+                        self.coin2.balance = float(account['balance'])
+                        self.coin2.available = float(account['available'])
+                        self.coin2.id = account['id']
                 else:
                     pass
-            print('{0} Wallet Balance: {1}, Acc ID: {2}'.format(self.coin1, self.coin1_balance, self.coin1_id))
-            print('{0} Wallet Balance: {1}, Acc ID: {2}'.format(self.coin2, self.coin2_balance, self.coin2_id))
+            print('{0} Wallet Balance: {1} - Acc ID: {2}'.format(self.coin1.symbol, self.coin1.balance, self.coin1.id))
+            print('{0} Wallet Balance: {1} - Acc ID: {2}'.format(self.coin2.symbol, self.coin2.balance, self.coin2.id))
         except Exception as e:
             print('ERROR:', e)
         #return self.coin1_balance, self.coin1_id, self.coin2_balance, self.coin2_id
@@ -113,36 +148,88 @@ class Trader:
             closing_price.append(float(items))#Gives a list
         self.cp = np.flip(closing_price).tolist()
 
-    def trade_logic(self): #takes kline_df (pd.DataFrame) and indicators (dictionary of indicators) (list of ints)
+    #def trade_logic(self, sma=self.sma[0], ema=self.ema[0], last_sma=self.sma[1], last_ema=self.ema[1]): #takes kline_df (pd.DataFrame) and indicators (dictionary of indicators) (list of ints)
+    def trade_logic(self, indicators=None):
+        #try:
+        sma = indicators['SMA'][:2]
+        ema = indicators['EMA'][:2]
+        cp = indicators['Closing'][:2]
+        ts = indicators['TimeStamp'][:2]
+        #print(indicators)
         #trade logic should maximize coin1 amount.
         decision = {
             'Buy' : False,
             'Sell' : False,
-            'Amount' : 0
+            'Amount' : 0,
+            'Price' : 0
         }
         up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
         down_multiplier = 0.0
-        cp = self.cp
-        sma = self.sma
-        ema = self.ema
+        tb = 0.003 #Seted to define the tolerance at what price we want to buy or sell
         #implement stop_loss variable that is adjusted as price rises and falls
         #look into Part Time Larry Supertrend indicator
-
+        self.update_wallet(coin=self.coin1)
+        self.update_wallet(coin=self.coin2)
+        price = cp[0]
+        decision['Price'] = price
+        #price = float(self.kline_data[0][3])
         #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)'
         #use numpy where: https://www.quantstart.com/articles/Backtesting-a-Moving-Average-Crossover-in-Python-with-pandas/
-        if a(ema[0]-sma[0])/sma[0] > 0.03*sma[0]:
-            #uptrend -> set decision['Buy'] to True:
-            if ema
-                decision['Buy'] = True
-                #amount = self.coin1_balance[0]*(0.25)*(1+up_multiplier)
-                ###################################################################################################3
-        #We haven't made a trade yet, wait for an EMA and SMA crossing before taking action
-        if len(self.list_of_trades) == 0:
-            return decision  #Return unmodified decision dict, so execute_trade(decision) takes no action
-        return decision
+        try:
+            if self.backtest:
+                if (ema[0]-sma[0]) > (tb)*sma[0]: #### GENERATE DECISION BASED OFF OF SIINGLE DATA POINT, NOT ENTIRE ARRAY
+                    #amount = self.coin1_balance[0]*(0.25)*(1+up_multiplier)
+                    if ema[1] >= sma[1]:
+                        decision['Buy'] = True
+                        amount = price * self.coin2.balance * (0.6)
+                        if ema[2] >= sma[2]:
+                            amount = amount * 0.5
+                    decision['Amount'] = amount
+                    print('Placing a BUY order for {}'.format(decision['Amount']))
+                elif (ema[0]-sma[0]) < (1-tb)*sma[0]:
+                    decision['Sell'] = True
+                    decision['Amount'] = float(self.coin1.balance * (0.6))
+                    print('Placing a SELL order for {}'.format(decision['Amount']))
+                #If we are running in a real market, try using market orders before using limit orders
+                else:
+                    print('Nothing to do')
+                    pass
+            #We haven't made a trade yet, wait for an EMA and SMA crossing before taking action
+            #if len(self.list_of_trades) == 0:
+            #    return decision  #Return unmodified decision dict, so execute_trade(decision) takes no action
+            self.execute_trade(decision, ts=ts[0])
 
-    def execute_trade(self, decision):
+        except Exception as e:
+            print('You dun fucked up')
+            print(e)
+
+    def execute_trade(self, decision, ts=None):
+        try:
+            price = decision['Price']
+            amount = decision['Amount']
+            if ts and self.backtest:
+                #Gives index of timestamp of that datapoint
+                #index = self.historical_data.loc[self.historical_data['TimeStamp'] == str(ts)].index[0]
+                #price = self.historical_data.loc[index, 'Close']
+                if decision['Buy']:
+                    #self.coin1.balance += decision['Amount']
+                    #self.coin2.balance -= decision['Amount']/decision['Price']
+                    cb1 = self.update_wallet(self.coin1, amount=amount)
+                    cb2 = self.update_wallet(self.coin2, amount=(-1)*(price*amount))
+                    self.list_of_trades.append([ts, 'Buy', amount, price, cb1, cb2])
+                elif decision['Sell']:
+                    cb1 = self.update_wallet(self.coin1, amount=(-1)*amount)
+                    cb2 = self.update_wallet(self.coin2, amount=price*amount)
+                    self.list_of_trades.append([ts, 'Sell', amount, price, cb1, cb2])
+        except Exception as e:
+            print(e)
+            print("Could not place order")
+            #place limit or market order depending on trend
         print(decision)
+        print('Trade Data')
+        print(pd.DataFrame(self.list_of_trades[0], columns=[])
+        print('{0} Balance: {1}'.format(self.coin1.symbol, self.coin1.balance))
+        print('{0} Balance: {1}'.format(self.coin2.symbol, self.coin2.balance))
 
 def update_plot(fig, time, cp, sma, ema):
     fig.clf()
@@ -153,7 +240,7 @@ def update_plot(fig, time, cp, sma, ema):
     plt.ylabel('Price')
     plt.legend(['CLOSE', 'SMA', 'EMA'])
     plt.draw()
-    plt.pause(10)
+    plt.pause(.001)
     #plt.show()
 
 
@@ -161,43 +248,48 @@ async def main():
     global loop
 
     async def update_stats(data):
+        bot.historical_data = pd.DataFrame(bot.kline_data, columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         bot.kline_data = np.insert(bot.kline_data, 0, data, axis=0)
         #Comment out line below if we want to keep all of our candle stick data rather than using sliding averages
         bot.kline_data = np.delete(bot.kline_data, -1, 0)
-        bot.historical_data = pd.DataFrame(bot.kline_data, columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         bot.update_indicators()
         bot.new_table = True
 
     async def on_msg(msg):
         if msg['data']['symbol'] == bot.ticker:
             msg_ts = int(msg['data']['candles'][0]) #Socket time stamp
-            cs_ts = int(bot.candle_stick[0]) #previous kline time stamp we read
+            cs_ts = int(bot.kline_data[0][0]) #previous kline time stamp we read
             if (msg_ts > cs_ts): #Indicates we are moving onto a new candle #Try changing to == rather than >
-                await update_stats(bot.candle_stick)
-            bot.candle_stick = msg['data']['candles'] #Update info on current kline
+                await update_stats(msg['data']['candles'])
+            bot.kline_data[0] = msg['data']['candles']
+            #print(bot.kline_data[:5]) #Update info on current kline
         else:
             print(msg) #implement error handling later lol
 
-    bot = Trader(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase)
+    bot = Trader(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase, candle_points=25)
     print("Last Time Stamp: ", bot.historical_data.loc[0, 'TimeStamp'])
     print("Current unixtimestamp: ", time.time())
     sock_manager = await KucoinSocketManager.create(loop, bot.client, on_msg)
     await sock_manager.subscribe(bot.subscription_url)
     print('Connection Secured at: ', time.time())
-    print(bot.historical_data)
+    #print(bot.historical_data)
     bot.init_wallets()
+    plt.ion()
 
     while True:
         if bot.new_table:
             print('Current unixtimestamp: ', time.time())
-            print(bot.historical_data)
+            #print(bot.historical_data)
+            """vvv ONLY FOR PRINTING AND GRAPHING vvv"""
             time_data = np.array(object=list(int(x) for x in bot.historical_data.loc[:, 'TimeStamp']))
             cp, sma, ema = bot.update_indicators()
             indicators = {'TimeStamp':time_data, 'Closing':cp, 'SMA': sma, 'EMA': ema}
             indicator_df = pd.DataFrame(indicators)
-            print(indicator_df)
-            decision = bot.trade_logic() #returns dictionary with 'Buy', 'Sell', 'Amount' that gets passed into a function which executes trade
-            bot.execute_trade(decision)
+            #print(indicator_df)
+            fig = plt.gcf()
+            update_plot(fig, time_data, cp, sma, ema)
+            """^^^ ONLY FOR PRINTING AND GRAPHING ^^^"""
+            decision = bot.trade_logic(indicators) #returns dictionary with 'Buy', 'Sell', 'Amount' and 'Price' that gets passed into a function which executes trade
             #export_file_path = "C:\\Users\\zinex\\Documents\\Python\\hist_data\\hist_data.cvs"
             #bot.historical_data.to_csv(export_file_path, header=True, index=False)
             bot.new_table = False
