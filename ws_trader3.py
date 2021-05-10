@@ -227,9 +227,9 @@ class Trader:
             #place limit or market order depending on trend
         print(decision)
         print('Trade Data')
-        print(pd.DataFrame(self.list_of_trades[0], columns=[])
-        print('{0} Balance: {1}'.format(self.coin1.symbol, self.coin1.balance))
-        print('{0} Balance: {1}'.format(self.coin2.symbol, self.coin2.balance))
+        print(pd.DataFrame(self.list_of_trades[0], columns=['TimeStamp', 'Side', 'BTC Amount', 'BTC' 'Net BTC', 'Net USD']))
+        print("{0} Balance: {1}".format(self.coin1.symbol, self.coin1.balance))
+        print("{0} Balance: {1}".format(self.coin2.symbol, self.coin2.balance))
 
 def update_plot(fig, time, cp, sma, ema):
     fig.clf()
