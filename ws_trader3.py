@@ -37,7 +37,7 @@ class Trader:
     symbol1 = 'BTC'
     symbol2 = 'USDT'
     ticker = symbol1 + '-' + symbol2
-    cs_length = '1min'
+    cs_length = '3min'
     subscription_url = '/market/candles:{0}_{1}'.format(ticker, cs_length)
     new_table = False
     SMA_PERIOD = 20
@@ -49,7 +49,7 @@ class Trader:
     day = hour * 24
 
     #candle_points
-    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, candle_points=100, ticker_len = minute, backtest=True):
+    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, candle_points=100, ticker_len = 3 * minute, backtest=True):
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_passphrase = api_passphrase
@@ -66,14 +66,13 @@ class Trader:
                             columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         self.update_indicators()
         self.user_accounts = self.client.get_accounts()
-        #print(self.user_accounts)
         self.list_of_trades = []
 
         class Coin:
             def __init__(self, symbol):
                 self.symbol = symbol
-                self.balance = None
-                self.available = None
+                self.balance = 0
+                self.available = 0
                 self.id = ''
 
         self.coin1 = Coin(symbol=self.symbol1)
@@ -165,38 +164,43 @@ class Trader:
         }
         up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
         down_multiplier = 0.0
-        tb = 0.003 #Seted to define the tolerance at what price we want to buy or sell
+        tb = 0.0005 #Seted to define the tolerance at what price we want to buy or sell
         #implement stop_loss variable that is adjusted as price rises and falls
         #look into Part Time Larry Supertrend indicator
         self.update_wallet(coin=self.coin1)
         self.update_wallet(coin=self.coin2)
         price = cp[0]
         decision['Price'] = price
+        print("Percentage change: {}%".format(100*(ema[0]-sma[0])/sma[0]))
         #price = float(self.kline_data[0][3])
         #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)'
         #use numpy where: https://www.quantstart.com/articles/Backtesting-a-Moving-Average-Crossover-in-Python-with-pandas/
         try:
             if self.backtest:
-                if (ema[0]-sma[0]) > (tb)*sma[0]: #### GENERATE DECISION BASED OFF OF SIINGLE DATA POINT, NOT ENTIRE ARRAY
-                    #amount = self.coin1_balance[0]*(0.25)*(1+up_multiplier)
-                    if ema[1] >= sma[1]:
+                if ema[0] > (1 + tb)*sma[0]:#EMA is 3% above SMA, place large BUY order
+                    if self.coin2.available > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
                         decision['Buy'] = True
-                        amount = price * self.coin2.balance * (0.6)
-                        if ema[2] >= sma[2]:
-                            amount = amount * 0.5
-                    decision['Amount'] = amount
-                    print('Placing a BUY order for {}'.format(decision['Amount']))
-                elif (ema[0]-sma[0]) < (1-tb)*sma[0]:
-                    decision['Sell'] = True
-                    decision['Amount'] = float(self.coin1.balance * (0.6))
-                    print('Placing a SELL order for {}'.format(decision['Amount']))
+                        amount = price * self.coin2.balance * 0.8
+                        if ema[1] >= sma[1]:
+                            amount = amount * 0.6
+                            if ema[2] >= sma[2]:
+                                amount = amount * 0.5
+                        decision['Amount'] = amount
+                        print('Placing a BUY order for {}'.format(amount))
+                    else:
+                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin2.symbol))
+                elif ema[0] < (1-tb)*sma[0]:
+                    if self.coin1.available * price > .01:#If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                        decision['Sell'] = True
+                        amount = self.coin1.balance
+                        decision['Amount'] = amount
+                        print('Placing a SELL order for {}'.format(amount))
+                    else:
+                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin1.symbol))
                 #If we are running in a real market, try using market orders before using limit orders
                 else:
                     print('Nothing to do')
                     pass
-            #We haven't made a trade yet, wait for an EMA and SMA crossing before taking action
-            #if len(self.list_of_trades) == 0:
-            #    return decision  #Return unmodified decision dict, so execute_trade(decision) takes no action
         except Exception as e:
             print('You dun fucked up')
             print(e)
@@ -226,7 +230,12 @@ class Trader:
             #place limit or market order depending on trend
         print(decision)
         print('Trade Data')
-        print(pd.DataFrame(self.list_of_trades[0], columns=['TimeStamp', 'Side', 'BTC Amount', 'BTC' 'Net BTC', 'Net USD']))
+        try:
+            print(self.list_of_trades[0])
+            print(pd.DataFrame(data=np.array(self.list_of_trades[0]), columns=['TimeStamp', 'Side', 'BTC Amount', 'BTC' 'Net BTC', 'Net USD']))
+        except Exception:
+            print('No trades to list because {}'.format(Exception))
+
         print("{0} Balance: {1}".format(self.coin1.symbol, self.coin1.balance))
         print("{0} Balance: {1}".format(self.coin2.symbol, self.coin2.balance))
 
@@ -250,7 +259,7 @@ async def main():
         bot.historical_data = pd.DataFrame(bot.kline_data, columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         bot.kline_data = np.insert(bot.kline_data, 0, data, axis=0)
         #Comment out line below if we want to keep all of our candle stick data rather than using sliding averages
-        bot.kline_data = np.delete(bot.kline_data, -1, 0)
+        #bot.kline_data = np.delete(bot.kline_data, -1, 0)
         bot.update_indicators()
         bot.new_table = True
 
@@ -265,7 +274,7 @@ async def main():
         else:
             print(msg) #implement error handling later lol
 
-    bot = Trader(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase, candle_points=25)
+    bot = Trader(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase, candle_points=100)
     print("Last Time Stamp: ", bot.historical_data.loc[0, 'TimeStamp'])
     print("Current unixtimestamp: ", time.time())
     sock_manager = await KucoinSocketManager.create(loop, bot.client, on_msg)
@@ -304,4 +313,4 @@ if __name__ == "__main__":
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         print('You quitter')
-        sys.exit(0)
+        sys.exit(1)
