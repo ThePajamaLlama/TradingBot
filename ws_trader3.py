@@ -197,11 +197,10 @@ class Trader:
             #We haven't made a trade yet, wait for an EMA and SMA crossing before taking action
             #if len(self.list_of_trades) == 0:
             #    return decision  #Return unmodified decision dict, so execute_trade(decision) takes no action
-            self.execute_trade(decision, ts=ts[0])
-
         except Exception as e:
             print('You dun fucked up')
             print(e)
+        self.execute_trade(decision, ts=ts[0])
 
     def execute_trade(self, decision, ts=None):
         try:
