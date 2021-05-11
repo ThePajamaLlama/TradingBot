@@ -224,7 +224,7 @@ class Trader:
                 elif decision['Sell']:
                     cb1 = self.update_wallet(self.coin1, amount=(-1)*amount)
                     cb2 = self.update_wallet(self.coin2, amount=price*amount)
-                    self.list_of_trades.append([ts, 'Sell', amount, price, cb1, cb2])
+                    self.list_of_trades.append([str(ts), 'Sell', str(amount), str(price), str(cb1), str(cb2)])
         except Exception as e:
             print(e)
             print("Could not place order")
@@ -234,7 +234,7 @@ class Trader:
         try:
             if len(self.list_of_trades) >= 1:
                 print(self.list_of_trades[0])
-                print(pd.DataFrame(data=np.array(self.list_of_trades.split()), columns=['TimeStamp', 'Side', 'BTCAmount', 'BTC' 'NetBTC', 'NetUSD']))
+                print(pd.DataFrame(data=self.list_of_trades, columns=['TimeStamp', 'Side', 'BTCAmount', 'BTC' 'NetBTC', 'NetUSD']))
             else:
                 print('No trades to list because some crazy shit happened')
         except Exception as e:
