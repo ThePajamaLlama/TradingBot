@@ -66,7 +66,7 @@ class Trader:
                             columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         self.update_indicators()
         self.user_accounts = self.client.get_accounts()
-        self.list_of_trades = []
+        self.list_of_trades = list()
 
         class Coin:
             def __init__(self, symbol):
@@ -178,24 +178,38 @@ class Trader:
         #use numpy where: https://www.quantstart.com/articles/Backtesting-a-Moving-Average-Crossover-in-Python-with-pandas/
 #        try:
         if self.backtest:
-            if ema[0] > (1 + tb)*sma[0]:#EMA is 3% above SMA, place large BUY order
+            if ema[0] > (1 + tb)*sma[0]:#EMA is 0.5% above SMA, place BUY order
                 if self.coin2.available > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                    amount = 0.9 * self.coin2.available / price #Full available balance
                     decision['Buy'] = True
-                    amount = (self.coin2.balance * 0.8)/price
-                    if ema[1] >= sma[1]:
-                        amount = amount * 0.6
-                        if ema[2] >= (1 + tb)*sma[2]:
-                            amount = amount * 0.5
+                    if ema[1] >= (1 + tb)*sma[1]:
+                        if ema[2] >= (1 + tb)*sma[2]: #EMA has been above SMA line for the past 3 candles, should buy less and less
+                            amount = amount * 0.2
+                        else:
+                            amount = amount * 0.8
+                    elif ema[1] < sma[1]:
+                        amount = amount * 1.05 #We are Now strongly crossing the EMA/SMA line, buy a lot
                     decision['Amount'] = amount
                     print('Placing a BUY order for {}'.format(amount))
                 else:
                     print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin2.symbol))
-            elif ema[0] < (1-tb)*sma[0]:
+            elif ema[0] <= (1 - tb)*sma[0]:
                 if self.coin1.available * price > .01:#If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
                     decision['Sell'] = True
-                    amount = self.coin1.balance
+                    amount = 0
+                    if ema[1] >= sma[1]:
+                        if ema[2] > sma[2]: #Definites entering downtrend from precious uptrend, perfect time to sell
+                            amount = self.coin1.balance * 0.9
+                        elif ema[2] <= sma[2]: #We hit a small spike, ignore and do not sell
+                            amount = 0
+                            decision['Sell'] = False
                     decision['Amount'] = amount #AMOUNT OF BTC BEING SOLD, NOT USDT
-                    print(f'Placing a SELL order for {amount}')
+                    if amount > 0:
+                        print(f'Placing a SELL order for {amount}')
+                    else:
+                        pass
+                elif ema[1] <= sma[1] or ema[2] <= sma[2]:
+                    print("We've been in a downtrend, not selling shit")
                 else:
                     print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin1.symbol))
             #If we are running in a real market, try using market orders before using limit orders
@@ -234,7 +248,9 @@ class Trader:
         try:
             if len(self.list_of_trades) >= 1:
                 print(self.list_of_trades[0])
-                print(pd.DataFrame(data=self.list_of_trades, columns=['TimeStamp', 'Side', 'BTCAmount', 'BTC' 'NetBTC', 'NetUSD']))
+                df = pd.DataFrame(data=[self.list_of_trades])
+                df.columns=['TimeStamp', 'Side', 'BTCAmount', 'BTC' 'NetBTC', 'NetUSD']
+                print(df)
             else:
                 print('No trades to list because some crazy shit happened')
         except Exception as e:
@@ -317,4 +333,3 @@ if __name__ == "__main__":
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         print('You quitter')
-        sys.exit(1)
