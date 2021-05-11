@@ -37,7 +37,7 @@ class Trader:
     symbol1 = 'BTC'
     symbol2 = 'USDT'
     ticker = symbol1 + '-' + symbol2
-    cs_length = '3min'
+    cs_length = '1min'
     subscription_url = '/market/candles:{0}_{1}'.format(ticker, cs_length)
     new_table = False
     SMA_PERIOD = 20
@@ -49,7 +49,7 @@ class Trader:
     day = hour * 24
 
     #candle_points
-    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, candle_points=100, ticker_len = 3 * minute, backtest=True):
+    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, candle_points=100, ticker_len = minute, backtest=True):
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_passphrase = api_passphrase
@@ -150,11 +150,11 @@ class Trader:
     #def trade_logic(self, sma=self.sma[0], ema=self.ema[0], last_sma=self.sma[1], last_ema=self.ema[1]): #takes kline_df (pd.DataFrame) and indicators (dictionary of indicators) (list of ints)
     def trade_logic(self, indicators=None):
         #try:
-        sma = indicators['SMA'][:2]
-        ema = indicators['EMA'][:2]
-        cp = indicators['Closing'][:2]
-        ts = indicators['TimeStamp'][:2]
-        #print(indicators)
+        sma = indicators['SMA'][:3]
+        ema = indicators['EMA'][:3]
+        cp = indicators['Closing'][:3]
+        ts = indicators['TimeStamp'][:3]
+        print(f'SMA: {sma}\nEMA: {ema}\nCP: {cp}\nTimeStamp: {ts}')
         #trade logic should maximize coin1 amount.
         decision = {
             'Buy' : False,
@@ -164,46 +164,47 @@ class Trader:
         }
         up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
         down_multiplier = 0.0
+
         tb = 0.0005 #Seted to define the tolerance at what price we want to buy or sell
         #implement stop_loss variable that is adjusted as price rises and falls
         #look into Part Time Larry Supertrend indicator
         self.update_wallet(coin=self.coin1)
         self.update_wallet(coin=self.coin2)
-        price = cp[0]
+        price = cp[0] # COIN1 / COIN2 (BTC/USDT for example)
         decision['Price'] = price
-        print("Percentage change: {}%".format(100*(ema[0]-sma[0])/sma[0]))
+        print(f"Percentage change: {(100*(ema[0]-sma[0])/sma[0]):.3f}%")
         #price = float(self.kline_data[0][3])
         #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)'
         #use numpy where: https://www.quantstart.com/articles/Backtesting-a-Moving-Average-Crossover-in-Python-with-pandas/
-        try:
-            if self.backtest:
-                if ema[0] > (1 + tb)*sma[0]:#EMA is 3% above SMA, place large BUY order
-                    if self.coin2.available > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
-                        decision['Buy'] = True
-                        amount = price * self.coin2.balance * 0.8
-                        if ema[1] >= sma[1]:
-                            amount = amount * 0.6
-                            if ema[2] >= sma[2]:
-                                amount = amount * 0.5
-                        decision['Amount'] = amount
-                        print('Placing a BUY order for {}'.format(amount))
-                    else:
-                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin2.symbol))
-                elif ema[0] < (1-tb)*sma[0]:
-                    if self.coin1.available * price > .01:#If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
-                        decision['Sell'] = True
-                        amount = self.coin1.balance
-                        decision['Amount'] = amount
-                        print('Placing a SELL order for {}'.format(amount))
-                    else:
-                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin1.symbol))
-                #If we are running in a real market, try using market orders before using limit orders
+#        try:
+        if self.backtest:
+            if ema[0] > (1 + tb)*sma[0]:#EMA is 3% above SMA, place large BUY order
+                if self.coin2.available > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                    decision['Buy'] = True
+                    amount = (self.coin2.balance * 0.8)/price
+                    if ema[1] >= sma[1]:
+                        amount = amount * 0.6
+                        if ema[2] >= (1 + tb)*sma[2]:
+                            amount = amount * 0.5
+                    decision['Amount'] = amount
+                    print('Placing a BUY order for {}'.format(amount))
                 else:
-                    print('Nothing to do')
-                    pass
-        except Exception as e:
-            print('You dun fucked up')
-            print(e)
+                    print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin2.symbol))
+            elif ema[0] < (1-tb)*sma[0]:
+                if self.coin1.available * price > .01:#If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                    decision['Sell'] = True
+                    amount = self.coin1.balance
+                    decision['Amount'] = amount #AMOUNT OF BTC BEING SOLD, NOT USDT
+                    print(f'Placing a SELL order for {amount}')
+                else:
+                    print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin1.symbol))
+            #If we are running in a real market, try using market orders before using limit orders
+            else:
+                print('Nothing to do')
+                pass
+#        except Exception as e:
+#            print('You dun fucked up')
+#            print(e)
         self.execute_trade(decision, ts=ts[0])
 
     def execute_trade(self, decision, ts=None):
@@ -231,10 +232,13 @@ class Trader:
         print(decision)
         print('Trade Data')
         try:
-            print(self.list_of_trades[0])
-            print(pd.DataFrame(data=np.array(self.list_of_trades[0]), columns=['TimeStamp', 'Side', 'BTC Amount', 'BTC' 'Net BTC', 'Net USD']))
-        except Exception:
-            print('No trades to list because {}'.format(Exception))
+            if len(self.list_of_trades) >= 1:
+                print(self.list_of_trades[0])
+                print(pd.DataFrame(data=np.array(self.list_of_trades.split()), columns=['TimeStamp', 'Side', 'BTCAmount', 'BTC' 'NetBTC', 'NetUSD']))
+            else:
+                print('No trades to list because some crazy shit happened')
+        except Exception as e:
+            print(f'No trades to list because {e}')
 
         print("{0} Balance: {1}".format(self.coin1.symbol, self.coin1.balance))
         print("{0} Balance: {1}".format(self.coin2.symbol, self.coin2.balance))
