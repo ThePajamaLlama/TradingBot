@@ -245,9 +245,8 @@ class Trader:
                         'Action' : 'Sell',
                         'Amount({})'.format(self.coin1.symbol) : amount,
                         '{} Price'.format(self.coin1.symbol) : price,
-                        '{} Balance'.format(self.coin1.symbol) : cb1,
-                        '{} Balance'.format(self.coin2.symbol) : cb2
-
+                        '{} Available'.format(self.coin1.symbol) : cb1,
+                        '{} Available'.format(self.coin2.symbol) : cb2
                     }
                     self.list_of_trades.append(trade)
                 else:
@@ -265,7 +264,6 @@ class Trader:
             if len(self.list_of_trades) >= 1:
                 print(self.list_of_trades[0])
                 df = pd.DataFrame(data=self.list_of_trades)
-                df.columns=['TimeStamp', 'Side', 'BTCAmount', 'BTC' 'NetBTC', 'NetUSD']
                 print(df)
             else:
                 print('No trades to list because some crazy shit happened')
