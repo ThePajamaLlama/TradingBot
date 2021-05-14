@@ -165,11 +165,13 @@ class Trader:
         up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
         down_multiplier = 0.0
 
-        tb = 0.0005 #Seted to define the tolerance at what price we want to buy or sell
+        tb = 0.0003 #Set to define the tolerance at what price we want to buy or sell
         #implement stop_loss variable that is adjusted as price rises and falls
         #look into Part Time Larry Supertrend indicator
         self.update_wallet(coin=self.coin1)
         self.update_wallet(coin=self.coin2)
+        cb1 = self.coin1.balance
+        cb2 = self.coin2.balance
         price = cp[0] # COIN1 / COIN2 (BTC/USDT for example)
         decision['Price'] = price
         print(f"Percentage change: {(100*(ema[0]-sma[0])/sma[0]):.3f}%")
@@ -179,39 +181,37 @@ class Trader:
         try:
             if self.backtest:
                 if ema[0] > (1 + tb)*sma[0]:#EMA is 0.5% above SMA, place BUY order
-                    if self.coin2.available > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
-                        amount = 0.9 * self.coin2.available / price #Full available balance
+                    if cb2 > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                        amount = 0.9 * cb2 / price #Full available balance
                         decision['Buy'] = True
-                        if ema[1] >= (1 + tb)*sma[1]:
-                            if ema[2] >= (1 + tb)*sma[2]: #EMA has been above SMA line for the past 3 candles, should buy less and less
-                                amount = amount * 0.2
-                            else:
-                                amount = amount * 0.8
-                        elif ema[1] < sma[1]:
-                            amount = amount * 1.05 #We are Now strongly crossing the EMA/SMA line, buy a lot
+                        if ema[1] >= (1 + tb)*sma[1] or ema[2] >= (1 + tb)*sma[2]: #EMA has been above SMA line for the past 3 candles, should buy less and less
+                            amount = amount * 0.2
+                        elif ema[1] < sma[1] or ema[2] < sma[2]: #Previous two points were below threshold and current one is above, we are crossing into an uptrend
+                            amount = amount * 1.05
+                        else: #We are currently above threshold but previous EMA and SMA points are gliding together, hanve't brokem out yet
+                            amount = amount * 0.8
                         decision['Amount'] = amount
                         print('Placing a BUY order for {}'.format(amount))
                     else:
-                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin2.symbol))
-                elif ema[0] <= (1 - tb)*sma[0]:
-                    if self.coin1.available * price > .01:#If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(cb2))
+                elif ema[0] <= (1 - tb)*sma[0]: #EMA has crossed below 99.5% of moving average, start selling
+                    if self.coin1.available * price > .01:#If we do not have an empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
                         decision['Sell'] = True
                         amount = 0
                         if ema[1] >= sma[1]:
+                            amount = cb1 * 0.8
                             if ema[2] > sma[2]: #Definites entering downtrend from precious uptrend, perfect time to sell
-                                amount = self.coin1.balance * 0.9
+                                amount = cb1 # * 0.9
                             elif ema[2] <= sma[2]: #We hit a small spike, ignore and do not sell
                                 amount = 0
                                 decision['Sell'] = False
-                        decision['Amount'] = amount #AMOUNT OF BTC BEING SOLD, NOT USDT
-                        if amount > 0:
-                            print(f'Placing a SELL order for {amount}')
+                            decision['Amount'] = amount #AMOUNT OF BTC BEING SOLD, NOT USDT
                         else:
-                            pass
-                    elif ema[1] <= sma[1] or ema[2] <= sma[2]:
-                        print("We've been in a downtrend, not selling shit")
+                            print('SELL CONDITIONS NOT SATISFACTORY')
+                    if amount > 0:
+                        print(f'Placing a SELL order for {amount}')
                     else:
-                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(self.coin1.symbol))
+                        print(f'NOT ENOUGH FUNDS IN {cb1} WALLET')
                 #If we are running in a real market, try using market orders before using limit orders
                 else:
                     print('Nothing to do')
@@ -222,8 +222,10 @@ class Trader:
         self.execute_trade(decision, ts=ts[0])
 
     def execute_trade(self, decision, ts=None):
-        try:
 
+        cancel_trade = False
+
+        try:
             price = decision['Price']
             amount = decision['Amount']
             if ts and self.backtest:
@@ -231,42 +233,57 @@ class Trader:
                 #index = self.historical_data.loc[self.historical_data['TimeStamp'] == str(ts)].index[0]
                 #price = self.historical_data.loc[index, 'Close']
                 if decision['Buy']:
-                    #self.coin1.balance += decision['Amount']
-                    #self.coin2.balance -= decision['Amount']/decision['Price']
-                    cb1 = self.update_wallet(self.coin1, amount=amount)
-                    cb2 = self.update_wallet(self.coin2, amount=(-1)*(price*amount))
-                    self.list_of_trades.append([str(ts), 'Buy', str(amount), str(price), str(cb1), str(cb2)])
+                    if amount < self.list_of_trades[-1]['Amount'] and self.list_of_trades[-1]['Action'] == 'Sell':
+                        print('WE FINNA LOOSE MONEY, NO PURCHASE ORDER PLACED')
+                        cancel_trade = True
+                        break #If we are buying back in at a higher price (getting less BTC) don't place the trade
+                    else:
+                        cb1 = self.update_wallet(self.coin1, amount=amount)
+                        cb2 = self.update_wallet(self.coin2, amount=(-1)*(price*amount))
+                        trade = {
+                            'TimeStamp' : ts,
+                            'Action' : 'Sell',
+                            'Amount' : amount,
+                            'Price' : price,
+                            '{} Available'.format(self.coin1.symbol) : cb1,
+                            '{} Available'.format(self.coin2.symbol) : cb2
+                        }
+                        self.list_of_trades.append(trade)
+
                 elif decision['Sell']:
-                    cb1 = self.update_wallet(self.coin1, amount=(-1)*amount)
-                    cb2 = self.update_wallet(self.coin2, amount=price*amount)
-                    trade = {
-                    https://stackoverflow.com/questions/20638006/convert-list-of-dictionaries-to-a-pandas-dataframe
-                        'TimeStamp' : ts,
-                        'Action' : 'Sell',
-                        'Amount({})'.format(self.coin1.symbol) : amount,
-                        '{} Price'.format(self.coin1.symbol) : price,
-                        '{} Available'.format(self.coin1.symbol) : cb1,
-                        '{} Available'.format(self.coin2.symbol) : cb2
-                    }
-                    self.list_of_trades.append(trade)
+                    if price < self.list_of_trades[-1]['Price'] and self.list_of_trades[-1]['Action'] == 'Buy':
+                        print('WE FINNA LOOSE MONEY, NO SELL ORDER PLACED')
+                        cancel_trade = True
+                        break #If we are buying back in at a higher price (getting less BTC) don't place the trade
+                    else:
+                        cb1 = self.update_wallet(self.coin1, amount=(-1)*amount)
+                        cb2 = self.update_wallet(self.coin2, amount=price*amount)
+                        trade = {
+                            'TimeStamp' : ts,
+                            'Action' : 'Sell',
+                            'Amount': amount,
+                            'Price' : price,
+                            '{} Available'.format(self.coin1.symbol) : cb1,
+                            '{} Available'.format(self.coin2.symbol) : cb2
+                        }
+                        self.list_of_trades.append(trade)
                 else:
                     print('NO TRADE EXECUTED...')
+            else: #WRITE THIS FOR REAL TIME TRADES AND TAKE SLIPPAGE INTO ACCOUNT
+                pass
 
         except Exception as e:
             print(e)
             print("Could not place order")
 
-        print("{0} Balance: {1}".format(self.coin1.symbol, self.coin1.balance))
-        print("{0} Balance: {1}".format(self.coin2.symbol, self.coin2.balance))
-        print(decision)
-        print('Trade Data')
         try:
-            if len(self.list_of_trades) >= 1:
-                print(self.list_of_trades[0])
+            if len(self.list_of_trades) > 0:
+                print(f"{self.coin1.symbol} Balance: {self.coin1.balance}")
+                print(f"{self.coin2.symbol} Balance: {self.coin2.balance}")
                 df = pd.DataFrame(data=self.list_of_trades)
+                print(df.loc[min(len(self.list_of_trades), 5), :])
                 print(df)
-            else:
-                print('No trades to list because some crazy shit happened')
+                print('DECISION', decision)
         except Exception as e:
             print(f'No trades to list because {e}')
 
@@ -318,7 +335,6 @@ async def main():
     while True:
         if bot.new_table:
             print('Current unixtimestamp: ', time.time())
-            #print(bot.historical_data)
             """vvv ONLY FOR PRINTING AND GRAPHING vvv"""
             time_data = np.array(object=list(int(x) for x in bot.historical_data.loc[:, 'TimeStamp']))
             cp, sma, ema = bot.update_indicators()
