@@ -55,13 +55,9 @@ class Trader:
         self.api_passphrase = api_passphrase
         self.client = Client(api_key, api_secret, api_passphrase, sandbox=True)
         self.backtest = backtest
-        #self.kline_data = []
-        #self.historical_data = []
         self.candle_points = candle_points #Number of candlestick data points to acquire
         now = int(time.time())
-        #Kline data is a list of candle stick info. Each element contains timestamp, open, close, high, low, tx amount and tx volume
         self.kline_data = np.array(self.client.get_kline_data(self.ticker, self.cs_length, (now - self.candle_points*ticker_len), now))
-        #historical data is the pandas datafram version of klin_data. Use to access column sof values like just time, or open price
         self.historical_data = pd.DataFrame(self.kline_data,
                             columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
         self.update_indicators()
@@ -77,7 +73,6 @@ class Trader:
 
         self.coin1 = Coin(symbol=self.symbol1)
         self.coin2 = Coin(symbol=self.symbol2)
-
 
     def update_indicators(self): #Call this to update the CP, SMA, and EMA arrays
         self.get_cp()
@@ -103,7 +98,6 @@ class Trader:
             coin.available = float(account['available'])
         print('{0} Wallet Balance: {1}'.format(coin.symbol, coin.balance))
         return coin.available
-
 
     def init_wallets(self, coin1=symbol1, coin2=symbol2):
         try:
@@ -147,9 +141,7 @@ class Trader:
             closing_price.append(float(items))#Gives a list
         self.cp = np.flip(closing_price).tolist()
 
-    #def trade_logic(self, sma=self.sma[0], ema=self.ema[0], last_sma=self.sma[1], last_ema=self.ema[1]): #takes kline_df (pd.DataFrame) and indicators (dictionary of indicators) (list of ints)
     def trade_logic(self, indicators=None):
-        #try:
         sma = indicators['SMA'][:3]
         ema = indicators['EMA'][:3]
         cp = indicators['Closing'][:3]
@@ -157,17 +149,16 @@ class Trader:
         print(f'SMA: {sma}\nEMA: {ema}\nCP: {cp}\nTimeStamp: {ts}')
         #trade logic should maximize coin1 amount.
         decision = {
-            'Buy' : False,
-            'Sell' : False,
-            'Amount' : 0,
-            'Price' : 0
+        'Buy' : False,
+        'Sell' : False,
+        'Amount' : 0,
+        'Price' : 0
         }
+
         up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
         down_multiplier = 0.0
 
-        tb = 0.0003 #Set to define the tolerance at what price we want to buy or sell
-        #implement stop_loss variable that is adjusted as price rises and falls
-        #look into Part Time Larry Supertrend indicator
+        tb = 0.003 #Set to define the tolerance at what price we want to buy or sell
         self.update_wallet(coin=self.coin1)
         self.update_wallet(coin=self.coin2)
         cb1 = self.coin1.balance
@@ -175,7 +166,6 @@ class Trader:
         price = cp[0] # COIN1 / COIN2 (BTC/USDT for example)
         decision['Price'] = price
         print(f"Percentage change: {(100*(ema[0]-sma[0])/sma[0]):.3f}%")
-        #price = float(self.kline_data[0][3])
         #if ema above sma and ema-sma > 0.5% of sma: (don't waste a trade on a hairtriggerq)'
         #use numpy where: https://www.quantstart.com/articles/Backtesting-a-Moving-Average-Crossover-in-Python-with-pandas/
         try:
@@ -191,9 +181,9 @@ class Trader:
                         else: #We are currently above threshold but previous EMA and SMA points are gliding together, hanve't brokem out yet
                             amount = amount * 0.8
                         decision['Amount'] = amount
-                        print('Placing a BUY order for {}'.format(amount))
+                        print(f'Placing a BUY order for {amount}')
                     else:
-                        print('NOT ENOUGH FUNDS IN {} WALLET'.format(cb2))
+                        print(f'NOT ENOUGH FUNDS IN {self.coin2.symbol} WALLET')
                 elif ema[0] <= (1 - tb)*sma[0]: #EMA has crossed below 99.5% of moving average, start selling
                     if self.coin1.available * price > .01:#If we do not have an empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
                         decision['Sell'] = True
@@ -208,10 +198,10 @@ class Trader:
                             decision['Amount'] = amount #AMOUNT OF BTC BEING SOLD, NOT USDT
                         else:
                             print('SELL CONDITIONS NOT SATISFACTORY')
+                    else:
+                        print(f'NOT ENOUGH FUNDS IN {self.coin1.symbol} WALLET TO PLACE ORDER')
                     if amount > 0:
                         print(f'Placing a SELL order for {amount}')
-                    else:
-                        print(f'NOT ENOUGH FUNDS IN {cb1} WALLET')
                 #If we are running in a real market, try using market orders before using limit orders
                 else:
                     print('Nothing to do')
@@ -222,27 +212,27 @@ class Trader:
         self.execute_trade(decision, ts=ts[0])
 
     def execute_trade(self, decision, ts=None):
-
         cancel_trade = False
-
         try:
             price = decision['Price']
             amount = decision['Amount']
             if ts and self.backtest:
                 #Gives index of timestamp of that datapoint
-                #index = self.historical_data.loc[self.historical_data['TimeStamp'] == str(ts)].index[0]
-                #price = self.historical_data.loc[index, 'Close']
                 if decision['Buy']:
-                    if amount < self.list_of_trades[-1]['Amount'] and self.list_of_trades[-1]['Action'] == 'Sell':
-                        print('WE FINNA LOOSE MONEY, NO PURCHASE ORDER PLACED')
-                        cancel_trade = True
-                        break #If we are buying back in at a higher price (getting less BTC) don't place the trade
+                    if len(self.list_of_trades) > 0 and self.list_of_trades[-1]['Action'] == 'Sell':
+                        if price > self.list_of_trades[-1]['Price']:
+                            print('WE FINNA LOOSE MONEY, NO PURCHASE ORDER PLACED')
+                            amount = 0#If we are buying back in at a higher price (getting less BTC) don't place the trade
+                        else:
+                            print('Placing BUY order')
+                    if amount == 0:
+                        pass
                     else:
                         cb1 = self.update_wallet(self.coin1, amount=amount)
                         cb2 = self.update_wallet(self.coin2, amount=(-1)*(price*amount))
                         trade = {
                             'TimeStamp' : ts,
-                            'Action' : 'Sell',
+                            'Action' : 'Buy',
                             'Amount' : amount,
                             'Price' : price,
                             '{} Available'.format(self.coin1.symbol) : cb1,
@@ -251,10 +241,14 @@ class Trader:
                         self.list_of_trades.append(trade)
 
                 elif decision['Sell']:
-                    if price < self.list_of_trades[-1]['Price'] and self.list_of_trades[-1]['Action'] == 'Buy':
-                        print('WE FINNA LOOSE MONEY, NO SELL ORDER PLACED')
-                        cancel_trade = True
-                        break #If we are buying back in at a higher price (getting less BTC) don't place the trade
+                    if len(self.list_of_trades) > 0 and self.list_of_trades[-1]['Action'] == 'Buy':
+                        if price < self.list_of_trades[-1]['Price']:
+                            print('WE FINNA LOOSE MONEY, NO SELL ORDER PLACED')
+                            amount = 0#If we are buying back in at a higher price (getting less BTC) don't place the trade
+                        else:
+                            print('Placing SELL order')
+                    if amount == 0:
+                        pass
                     else:
                         cb1 = self.update_wallet(self.coin1, amount=(-1)*amount)
                         cb2 = self.update_wallet(self.coin2, amount=price*amount)
@@ -281,14 +275,22 @@ class Trader:
                 print(f"{self.coin1.symbol} Balance: {self.coin1.balance}")
                 print(f"{self.coin2.symbol} Balance: {self.coin2.balance}")
                 df = pd.DataFrame(data=self.list_of_trades)
-                print(df.loc[min(len(self.list_of_trades), 5), :])
+                #print(df.iloc[ : min(len(df), 5)])
                 print(df)
                 print('DECISION', decision)
         except Exception as e:
             print(f'No trades to list because {e}')
 
-def update_plot(fig, time, cp, sma, ema):
+def update_plot(fig, time, cp, sma, ema, trades=None): #trades = [{trade1}, {trade2},...]
     fig.clf()
+    if trades:
+        buys = [trade['Price'] for trade in trades if trade['Action'] == 'Buy']
+        buys_ts = [trade['TimeStamp'] for trade in trades if trade['Action'] == 'Buy']
+        sells = [trade['Price'] for trade in trades if trade['Action'] == 'Sell']
+        sells_ts = [trade['TimeStamp'] for trade in trades if trade['Action'] == 'Sell']
+        print(buys, buys_ts, sells, sells_ts)
+        plt.plot(buys_ts, buys, 'g^')
+        plt.plot(sells_ts, sells, 'rv')
     plt.plot(time, cp)
     plt.plot(time, sma)
     plt.plot(time, ema)
@@ -318,7 +320,6 @@ async def main():
             if (msg_ts > cs_ts): #Indicates we are moving onto a new candle #Try changing to == rather than >
                 await update_stats(msg['data']['candles'])
             bot.kline_data[0] = msg['data']['candles']
-            #print(bot.kline_data[:5]) #Update info on current kline
         else:
             print(msg) #implement error handling later lol
 
@@ -328,7 +329,6 @@ async def main():
     sock_manager = await KucoinSocketManager.create(loop, bot.client, on_msg)
     await sock_manager.subscribe(bot.subscription_url)
     print('Connection Secured at: ', time.time())
-    #print(bot.historical_data)
     bot.init_wallets()
     plt.ion()
 
@@ -342,7 +342,7 @@ async def main():
             indicator_df = pd.DataFrame(indicators)
             #print(indicator_df)
             fig = plt.gcf()
-            update_plot(fig, time_data, cp, sma, ema)
+            update_plot(fig, time_data, cp, sma, ema, bot.list_of_trades)
             """^^^ ONLY FOR PRINTING AND GRAPHING ^^^"""
             decision = bot.trade_logic(indicators) #returns dictionary with 'Buy', 'Sell', 'Amount' and 'Price' that gets passed into a function which executes trade
             #export_file_path = "C:\\Users\\zinex\\Documents\\Python\\hist_data\\hist_data.cvs"
