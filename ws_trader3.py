@@ -158,7 +158,8 @@ class Trader:
         up_multiplier = 0.0 #Use later to adjust the amount that we buy depending on strength of trend
         down_multiplier = 0.0
 
-        tb = 0.003 #Set to define the tolerance at what price we want to buy or sell
+        #tb should increase as ticker_len increases. 0.5% for 15 minutes, 0.2% for 1 or 3 minute, etc.
+        tb = 0.005 #Set to define the tolerance at what price we want to buy or sell
         self.update_wallet(coin=self.coin1)
         self.update_wallet(coin=self.coin2)
         cb1 = self.coin1.balance
@@ -171,21 +172,25 @@ class Trader:
         try:
             if self.backtest:
                 if ema[0] > (1 + tb)*sma[0]:#EMA is 0.5% above SMA, place BUY order
-                    if cb2 > 0.01: #If we do not have a newar empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
-                        amount = 0.9 * cb2 / price #Full available balance
+                    if cb2 > 10: #If we do not have a newar empty wallet ($10). (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                        amount = cb2 / price #Full available balance
                         decision['Buy'] = True
-                        if ema[1] >= (1 + tb)*sma[1] or ema[2] >= (1 + tb)*sma[2]: #EMA has been above SMA line for the past 3 candles, should buy less and less
-                            amount = amount * 0.2
-                        elif ema[1] < sma[1] or ema[2] < sma[2]: #Previous two points were below threshold and current one is above, we are crossing into an uptrend
-                            amount = amount * 1.05
-                        else: #We are currently above threshold but previous EMA and SMA points are gliding together, hanve't brokem out yet
+                        #if ema[1] >= (1 + tb)*sma[1] or ema[2] >= (1 + tb)*sma[2]: #EMA has been above SMA line for the past 3 candles
+                        if ema[1] > sma[1] and ema[2] > sma[2]: #EMA has been above SMA line for the past 3 candles]
+                            print('Missed the mark, wait until next crossover')
+                            amount = 0 #stop buying and ride it out
+                        elif ema[1] < sma[1]:
+                            if ema[2] < sma[2]: #Previous two points were below threshold and current one is above, we are crossing into an uptrend
+                                amount = amount * 0.8
+                            else: #This is triggered by market noise, should rarely be executed
+                                amount = 0
+                        else: #We just passed the threshold within the last two tickers
                             amount = amount * 0.8
                         decision['Amount'] = amount
-                        print(f'Placing a BUY order for {amount}')
                     else:
                         print(f'NOT ENOUGH FUNDS IN {self.coin2.symbol} WALLET')
                 elif ema[0] <= (1 - tb)*sma[0]: #EMA has crossed below 99.5% of moving average, start selling
-                    if self.coin1.available * price > .01:#If we do not have an empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
+                    if self.coin1.available * price > 10:#If we do not have an empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
                         decision['Sell'] = True
                         amount = 0
                         if ema[1] >= sma[1]:
@@ -221,10 +226,11 @@ class Trader:
                 if decision['Buy']:
                     if len(self.list_of_trades) > 0 and self.list_of_trades[-1]['Action'] == 'Sell':
                         if price > self.list_of_trades[-1]['Price']:
-                            print('WE FINNA LOOSE MONEY, NO PURCHASE ORDER PLACED')
-                            amount = 0#If we are buying back in at a higher price (getting less BTC) don't place the trade
+                            print('BUYING IN AT HIGHER PRICE THAN LAST SELL')
+                            print('NO PURCHASE ORDER PLACED')
+                            amount = 0 #If we are buying back in at a higher price (getting less BTC) don't place the trade
                         else:
-                            print('Placing BUY order')
+                            print(f'Placing a BUY order for {amount}')
                     if amount == 0:
                         pass
                     else:
@@ -243,10 +249,11 @@ class Trader:
                 elif decision['Sell']:
                     if len(self.list_of_trades) > 0 and self.list_of_trades[-1]['Action'] == 'Buy':
                         if price < self.list_of_trades[-1]['Price']:
-                            print('WE FINNA LOOSE MONEY, NO SELL ORDER PLACED')
+                            print('SELLING OUT AT LOWER PRICE THAN LAST PURCHASE')
+                            print('NO SELL PLACED')
                             amount = 0#If we are buying back in at a higher price (getting less BTC) don't place the trade
                         else:
-                            print('Placing SELL order')
+                            print(f'Placing a SELL order for {amount}')
                     if amount == 0:
                         pass
                     else:
@@ -288,7 +295,7 @@ def update_plot(fig, time, cp, sma, ema, trades=None): #trades = [{trade1}, {tra
         buys_ts = [trade['TimeStamp'] for trade in trades if trade['Action'] == 'Buy']
         sells = [trade['Price'] for trade in trades if trade['Action'] == 'Sell']
         sells_ts = [trade['TimeStamp'] for trade in trades if trade['Action'] == 'Sell']
-        print(buys, buys_ts, sells, sells_ts)
+        #print(buys, buys_ts, sells, sells_ts)
         plt.plot(buys_ts, buys, 'g^')
         plt.plot(sells_ts, sells, 'rv')
     plt.plot(time, cp)
@@ -335,16 +342,13 @@ async def main():
     while True:
         if bot.new_table:
             print('Current unixtimestamp: ', time.time())
-            """vvv ONLY FOR PRINTING AND GRAPHING vvv"""
             time_data = np.array(object=list(int(x) for x in bot.historical_data.loc[:, 'TimeStamp']))
             cp, sma, ema = bot.update_indicators()
             indicators = {'TimeStamp':time_data, 'Closing':cp, 'SMA': sma, 'EMA': ema}
             indicator_df = pd.DataFrame(indicators)
-            #print(indicator_df)
+            decision = bot.trade_logic(indicators) #returns dictionary with 'Buy', 'Sell', 'Amount' and 'Price' that gets passed into a function which executes trade
             fig = plt.gcf()
             update_plot(fig, time_data, cp, sma, ema, bot.list_of_trades)
-            """^^^ ONLY FOR PRINTING AND GRAPHING ^^^"""
-            decision = bot.trade_logic(indicators) #returns dictionary with 'Buy', 'Sell', 'Amount' and 'Price' that gets passed into a function which executes trade
             #export_file_path = "C:\\Users\\zinex\\Documents\\Python\\hist_data\\hist_data.cvs"
             #bot.historical_data.to_csv(export_file_path, header=True, index=False)
             bot.new_table = False
