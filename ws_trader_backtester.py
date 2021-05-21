@@ -15,8 +15,8 @@ week = day * 7
 now = time.time()
 
 bbb = Trader(api_key=keys['apiKey'], api_secret=keys['apiSecret'], api_passphrase=keys['apiPassphrase'], candle_points=1500, ticker_len = 15*minute, backtest=True)
-bbb.coin1.available = 0.4
-bbb.coin2.available = 1000
+bbb.coin1.balance = 3000
+bbb.coin2.balance = 1000
 #bbb.init_wallets()#print(now)
 #print(now  - bbb.candle_points*15*minute)
 #print(now - 2*bbb.candle_points*15*minute)
