@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 from ws_trader3 import Trader
-from kucoinKeys import real_keys as keys
+from kucoinKeys import sandbox_keys as keys
 minute = 60
 hour = minute * 60
 day = hour * 24
@@ -14,10 +14,9 @@ week = day * 7
 
 now = time.time()
 
-bbb = Trader(api_key=keys['apiKey'], api_secret=keys['apiSecret'], api_passphrase=keys['apiPassphrase'], candle_points=1500, ticker_len = 15*minute, backtest=True)
-bbb.coin1.balance = 3000
-bbb.coin2.balance = 1000
-#bbb.init_wallets()#print(now)
+bbb = Trader(api_key=keys['apiKey'], api_secret=keys['apiSecret'], api_passphrase=keys['apiPassphrase'], candle_points=1500, ticker_len = 30*minute, cs_length='30min', backtest=True)
+bbb.init_wallets(bbb.coin1.symbol, bbb.coin2.symbol)
+#print(now)
 #print(now  - bbb.candle_points*15*minute)
 #print(now - 2*bbb.candle_points*15*minute)
 #data  = bbb.client.get_kline_data(bbb.ticker, bbb.cs_length, now - 2*bbb.candle_points*15*minute, now  - bbb.candle_points*15*minute)
@@ -26,7 +25,6 @@ bbb.coin2.balance = 1000
 #bbb.historical_data = pd.DataFrame(bbb.kline_data, columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
 export_file_path = "C:\\Users\\zinex\\Documents\\Python\\hist_data\\hist_data.cvs"
 bbb.historical_data.to_csv(export_file_path, header=True, index=True)
-#print(bbb.historical_data)
 ts = list(int(x) for x in bbb.historical_data.loc[:, 'TimeStamp'])
 op = bbb.op
 cp = bbb.cp
@@ -34,7 +32,7 @@ sma = bbb.sma
 ema = bbb.ema
 
 for pos in range(len(ts) - 3):
-    print(f'POS: {pos}')
+    #print(f'POS: {pos}')
     indicators = {'Opening' : op[pos:pos+3],'Closing' : cp[pos:pos+3], 'EMA' : ema[pos:pos+3], 'SMA' : sma[pos:pos+3], 'TimeStamp' : ts[pos:pos+3]}
     bbb.trade_logic(indicators)
 

@@ -34,11 +34,11 @@ from kucoin.asyncio import KucoinSocketManager
 from kucoinKeys import sandbox_keys as keys
 
 class Trader:
-    symbol1 = 'ADA'
-    symbol2 = 'USDT'
-    ticker = symbol1 + '-' + symbol2
-    cs_length = '15min'
-    subscription_url = '/market/candles:{0}_{1}'.format(ticker, cs_length)
+    #symbol1 = 'BTC'
+    #symbol2 = 'USDT'
+    #ticker = symbol1 + '-' + symbol2
+    #cs_length = '30min'
+    #subscription_url = '/market/candles:{0}_{1}'.format(ticker, cs_length)
     new_table = False
     SMA_PERIOD = 30
     EMA_PERIOD = 9
@@ -49,14 +49,20 @@ class Trader:
     day = hour * 24
 
     #candle_points
-    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, candle_points=100, ticker_len = minute, backtest=True):
+    def __init__(self, api_key=None, api_secret=None, api_passphrase=None, symbol1='BTC', symbol2='USDT',
+                cs_length='1min', candle_points=100, ticker_len = minute, backtest=True):
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_passphrase = api_passphrase
-        self.client = Client(api_key, api_secret, api_passphrase, sandbox=False)
+        self.client = Client(api_key, api_secret, api_passphrase, sandbox=backtest)
         self.backtest = backtest
+        self.symbol1 = symbol1
+        self.symbol2 = symbol2
+        self.cs_length = cs_length
+        self.ticker = self.symbol1 + '-' + self.symbol2
+        self.subscription_url = f'/market/candles:{self.ticker}_{self.cs_length}'
         self.candle_points = candle_points #Number of candlestick data points to acquire
-        now = 1619826500#int(time.time())
+        now = int(time.time())
         self.kline_data = np.array(self.client.get_kline_data(self.ticker, self.cs_length, (now - self.candle_points*ticker_len), now))
         self.historical_data = pd.DataFrame(self.kline_data,
                             columns=['TimeStamp', 'Open', 'Close', 'High', 'Low', 'Tx Amount', 'Tx Volume'])
@@ -100,7 +106,7 @@ class Trader:
         print('{0} Wallet Balance: {1}'.format(coin.symbol, coin.balance))
         return coin.available
 
-    def init_wallets(self, coin1=symbol1, coin2=symbol2):
+    def init_wallets(self, coin1, coin2):
         try:
             for account in self.user_accounts:
                 if account['currency'] == coin1:
@@ -167,7 +173,7 @@ class Trader:
         down_multiplier = 0.0
 
         #tb should increase as ticker_len increases. 0.5% for 15 minutes, 0.2% for 1 or 3 minute, etc.
-        tb = 0.001 #Set to define the tolerance at what price we want to buy or sell
+        tb = 0.005 #Set to define the tolerance at what price we want to buy or sell
         self.update_wallet(coin=self.coin1)
         self.update_wallet(coin=self.coin2)
         cb1 = self.coin1.balance
@@ -199,7 +205,7 @@ class Trader:
                         decision['Amount'] = amount
                     else:
                         print(f'NOT ENOUGH FUNDS IN {self.coin2.symbol} WALLET')
-                elif ema[0] <= (1 - tb)*sma[0]: #EMA has crossed below 99.5% of moving average, start selling
+                elif ema[0] <= (1 - tb)*sma[0]: #EMA has crossed below threshold of moving average, start selling
                     amount = 0
                     if self.coin1.available * price > 10:#If we do not have an empty wallet. (CHANGE SO IT HAS TO BE GREATER THAN FEE, THEN IF IT PROFITABLE OR NOT)
                         decision['Sell'] = True
@@ -224,9 +230,9 @@ class Trader:
         except Exception as e:
             print('You dun fucked up')
             print(e)
-        self.execute_trade(decision, ts=ts[0])
+        self.execute_trade(decision, ts=ts[0], ls=tb)
 
-    def execute_trade(self, decision, ts=None, ls=0.03): #ls is the loss permitted to buy or sell back into a position if we made a wrong decision
+    def execute_trade(self, decision, ts=None, ls=0.005): #ls is the loss permitted to buy or sell back into a position if we made a wrong decision
         #try:
         price = decision['Price']
         amount = decision['Amount']
